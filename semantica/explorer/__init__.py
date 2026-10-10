@@ -96,7 +96,7 @@ def main(argv=None):
                 f"http://localhost:{args.port}",
                 f"http://127.0.0.1:{args.port}",
             ]
-        if args.host not in ("127.0.0.1", "localhost", "0.0.0.0", "::1", "::"):
+        if args.host not in ("127.0.0.1", "localhost", "0.0.0.0", "::"):
             if args.port != 0:
                 default_origins.append(f"http://{_format_host(args.host)}:{args.port}")
         allowed_origins = list(dict.fromkeys(default_origins))

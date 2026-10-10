@@ -233,14 +233,16 @@ def test_legacy_server_allows_port_8000_origin_by_default(monkeypatch):
     import importlib
     import os
 
+    sentinel = object()
+    saved = os.environ.get("SEMANTICA_CORS_ORIGINS", sentinel)
+    saved_port = os.environ.get("PORT", sentinel)
     monkeypatch.setenv("SEMANTICA_ALLOW_ANONYMOUS", "true")
     monkeypatch.delenv("SEMANTICA_API_KEY", raising=False)
     monkeypatch.delenv("SEMANTICA_CORS_ORIGINS", raising=False)
+    monkeypatch.delenv("PORT", raising=False)
 
     from semantica import server
 
-    sentinel = object()
-    saved = os.environ.get("SEMANTICA_CORS_ORIGINS", sentinel)
     try:
         importlib.reload(server)
         assert "http://localhost:8000" in server._cors_origins
@@ -255,6 +257,45 @@ def test_legacy_server_allows_port_8000_origin_by_default(monkeypatch):
             os.environ.pop("SEMANTICA_CORS_ORIGINS", None)
         else:
             os.environ["SEMANTICA_CORS_ORIGINS"] = saved
+        if saved_port is sentinel:
+            os.environ.pop("PORT", None)
+        else:
+            os.environ["PORT"] = saved_port
+        importlib.reload(server)
+
+
+def test_legacy_server_picks_up_custom_port_from_env(monkeypatch):
+    """Qodo follow-up: ASGI serving on another port gets matching origins."""
+    import importlib
+    import os
+
+    sentinel = object()
+    saved = os.environ.get("SEMANTICA_CORS_ORIGINS", sentinel)
+    saved_port = os.environ.get("PORT", sentinel)
+    monkeypatch.setenv("SEMANTICA_ALLOW_ANONYMOUS", "true")
+    monkeypatch.delenv("SEMANTICA_API_KEY", raising=False)
+    monkeypatch.delenv("SEMANTICA_CORS_ORIGINS", raising=False)
+    monkeypatch.setenv("PORT", "8020")
+
+    from semantica import server
+
+    try:
+        importlib.reload(server)
+        assert "http://127.0.0.1:8020" in server._cors_origins
+        with TestClient(server.app) as client:
+            with client.websocket_connect(
+                "/ws/graph-updates", headers={"Origin": "http://127.0.0.1:8020"}
+            ) as ws:
+                assert ws.receive_json()["event"] == "connection_ack"
+    finally:
+        if saved is sentinel:
+            os.environ.pop("SEMANTICA_CORS_ORIGINS", None)
+        else:
+            os.environ["SEMANTICA_CORS_ORIGINS"] = saved
+        if saved_port is sentinel:
+            os.environ.pop("PORT", None)
+        else:
+            os.environ["PORT"] = saved_port
         importlib.reload(server)
 
 
@@ -268,8 +309,9 @@ def test_cli_main_brackets_ipv6_host_origin(tmp_path, monkeypatch):
     graph_file = tmp_path / "test_graph.json"
     graph_file.write_text('{"nodes": [], "edges": []}', encoding="utf-8")
 
-    from semantica.explorer import main
     import uvicorn
+
+    from semantica.explorer import main
 
     captured_app = None
 
@@ -285,6 +327,38 @@ def test_cli_main_brackets_ipv6_host_origin(tmp_path, monkeypatch):
     assert not any(o.startswith("http://fe80::1:") for o in origins)
 
 
+def test_cli_main_allows_loopback_ipv6_origin_and_handshake(tmp_path, monkeypatch):
+    """Qodo follow-up: --host ::1 allowlists http://[::1]:port end to end."""
+    monkeypatch.setenv("SEMANTICA_ALLOW_ANONYMOUS", "true")
+    monkeypatch.delenv("SEMANTICA_API_KEY", raising=False)
+    monkeypatch.delenv("ALLOWED_ORIGINS", raising=False)
+    monkeypatch.delenv("EXPLORER_CORS_ORIGINS", raising=False)
+
+    graph_file = tmp_path / "test_graph.json"
+    graph_file.write_text('{"nodes": [], "edges": []}', encoding="utf-8")
+
+    import uvicorn
+
+    from semantica.explorer import main
+
+    captured_app = None
+
+    def mock_run(app, **kwargs):
+        nonlocal captured_app
+        captured_app = app
+
+    monkeypatch.setattr(uvicorn, "run", mock_run)
+    main(["--graph", str(graph_file), "--host", "::1", "--no-browser"])
+
+    origins = captured_app.state.explorer_settings["allowed_origins"]
+    assert "http://[::1]:8000" in origins
+    with TestClient(captured_app) as client:
+        with client.websocket_connect(
+            "/ws/graph-updates", headers={"Origin": "http://[::1]:8000"}
+        ) as ws:
+            assert ws.receive_json()["event"] == "connection_ack"
+
+
 def test_cli_main_skips_port_zero_origin(tmp_path, monkeypatch):
     """Regression test for #1964.4: --port 0 adds no :0 origin (OS picks port)."""
     monkeypatch.setenv("SEMANTICA_ALLOW_ANONYMOUS", "true")
@@ -295,8 +369,9 @@ def test_cli_main_skips_port_zero_origin(tmp_path, monkeypatch):
     graph_file = tmp_path / "test_graph.json"
     graph_file.write_text('{"nodes": [], "edges": []}', encoding="utf-8")
 
-    from semantica.explorer import main
     import uvicorn
+
+    from semantica.explorer import main
 
     captured_app = None
 

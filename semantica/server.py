@@ -94,11 +94,20 @@ app = FastAPI(
 # --- CORS -----------------------------------------------------------
 # Allow origins from environment (comma-separated); defaults mirror
 # semantica/explorer/app.py so a browser on the default port 8000 is
-# accepted. Production deployments must still configure this explicitly.
+# accepted. A legacy app served by an ASGI server on another port picks it
+# up from PORT (the only channel an import cannot see); explicit
+# SEMANTICA_CORS_ORIGINS always wins. Production deployments must still
+# configure this explicitly.
+_serve_port = os.environ.get("PORT", "").strip()
+_serve_origins = (
+    f",http://localhost:{_serve_port},http://127.0.0.1:{_serve_port}"
+    if _serve_port.isdigit() and _serve_port not in ("0", "8000")
+    else ""
+)
 _cors_origins_env = os.environ.get(
     "SEMANTICA_CORS_ORIGINS",
     "http://localhost:5173,http://127.0.0.1:5173,"
-    "http://localhost:8000,http://127.0.0.1:8000",
+    "http://localhost:8000,http://127.0.0.1:8000" + _serve_origins,
 )
 _cors_origins = [o.strip() for o in _cors_origins_env.split(",") if o.strip()]
 app.add_middleware(
